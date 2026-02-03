@@ -7,27 +7,28 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
-# --- 1. CONFIGURATION ---
+# --- CONFIGURATION ---
 BOT_TOKEN = os.getenv("BOT_TOKEN") 
 START_SOL = 10.0
 
-# --- 2. FAKE WEB SERVER (To keep Render happy) ---
+# --- FAKE WEB SERVER (For Koyeb Health Checks) ---
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "✅ Bot is Alive!"
+    return "✅ Bot is Alive on Koyeb!"
 
 def run_flask():
-    # Render expects the app to listen on port 10000 (or $PORT)
-    port = int(os.environ.get("PORT", 10000))
+    # Koyeb expects the app to listen on port 8000 by default
+    port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
 
-# --- 3. GLOBAL STATE & LOGIC ---
+# --- GLOBAL STATE ---
 user_wallets = {}  
 user_states = {}   
 current_trade = {} 
 
+# --- HELPER FUNCTIONS ---
 def get_token_info(ca):
     try:
         url = f"https://api.dexscreener.com/latest/dex/tokens/{ca}"
@@ -55,7 +56,7 @@ def get_sol_price():
     except:
         return 0.0
 
-# --- 4. BOT HANDLERS ---
+# --- BOT HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = user.id
@@ -190,29 +191,28 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await update.message.reply_text("❌ Invalid number.")
 
-# --- 5. MAIN LAUNCHER ---
+# --- LAUNCHER ---
 if __name__ == '__main__':
-    # A. Start the Telegram Bot in a background thread
-    async def run_bot():
-        if not BOT_TOKEN:
-            print("❌ BOT_TOKEN missing")
-            return
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
-        app.add_handler(CommandHandler('start', start))
-        app.add_handler(CallbackQueryHandler(menu_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-        print("🤖 Bot Started!")
-        await app.updater.start_polling(drop_pending_updates=True)
-        # Keep running
-        while True: await asyncio.sleep(3600)
+    # 1. Start Bot in Background Thread
+    def run_bot_loop():
+        async def runner():
+            if not BOT_TOKEN:
+                print("❌ BOT_TOKEN missing")
+                return
+            app = ApplicationBuilder().token(BOT_TOKEN).build()
+            app.add_handler(CommandHandler('start', start))
+            app.add_handler(CallbackQueryHandler(menu_handler))
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+            print("🤖 Bot Started!")
+            await app.updater.start_polling(drop_pending_updates=True)
+            while True: await asyncio.sleep(3600)
 
-    def start_background_loop(loop):
+        loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(run_bot())
+        loop.run_until_complete(runner())
 
-    loop = asyncio.new_event_loop()
-    t = threading.Thread(target=start_background_loop, args=(loop,), daemon=True)
-    t.start()
+    threading.Thread(target=run_bot_loop, daemon=True).start()
 
-    # B. Start the Fake Web Server (Main Thread)
+    # 2. Start Fake Web Server (Main Thread)
+    print("🌍 Starting Web Server on Port 8000...")
     run_flask()
